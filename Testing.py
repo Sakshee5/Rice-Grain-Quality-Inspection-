@@ -7,20 +7,16 @@ import cv2
 import os
 import numpy as np
 import torch.nn.init
-import random
 import tqdm
 import numpy as np
-import cv2
-from collections import defaultdict
 import os
-import csv
 from PIL import Image
-import matplotlib.pyplot as plt
-import statistics
+from pre_processing import mask_and_crop
 
 
 parser = argparse.ArgumentParser(description='PyTorch Unsupervised Segmentation')
 parser.add_argument('--nChannel', metavar='N', default=50, type=int, help='number of channels')
+parser.add_argument('--nConv', metavar='M', default=2, type=int, help='number of convolutional layers')
 args = parser.parse_args()
 
 
@@ -58,69 +54,12 @@ class MyNet(nn.Module):
         return x
 
 
-def get_rice_mask_thru_colour_detection(img_path):
-    """
-    Img ---> converted to HSV color space to detect background ---> create a mask of grain ---> make sure all background
-    pixels are set to black colour ---> crop grain ---> add 5 pixel black background padding on each side
-    """
-    img = cv2.resize(cv2.imread(img_path), (800, 1200))
-    imgHSV = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-
-    lower = np.array([70, 110, 0])
-    upper = np.array([109, 255, 255])
-
-    mask = cv2.inRange(imgHSV, lower, upper)
-    imgResult = cv2.bitwise_and(img, img, mask=cv2.bitwise_not(mask))
-
-    def neighbours(im):
-        for i in range(im.shape[1]):  # set top and bottom row of pixels to 0 incase they are not masked right
-            im[0, i, :] = 0
-            im[im.shape[0] - 1, i, :] = 0
-
-        for i in range(im.shape[0]):  # set right and left column of pixels to 0
-            im[i, 0, :] = 0
-            im[i, im.shape[1] - 1, :] = 0
-
-        neighbours = [1, 2, 3, 4, 5]
-        # check top bottom right and left pixels of every pixel till it's fifth neighbour and if they are all zero then
-        # set pixel in question to zero incase they were not masked right
-
-        for val in neighbours:
-            for i in range(val, im.shape[0] - val):
-                for j in range(1, im.shape[1] - val):
-                    if np.any(im[i, j, :]) != 0:
-                        if np.all(im[i + val, j, :] == 0) and np.all(im[i, j + val, :] == 0) and np.all(
-                                im[i - val, j, :] == 0) and np.all(im[i, j - val, :] == 0):
-                            im[i, j, :] = 0
-
-        return im
-
-    def trim(frame):
-        # crop top
-        if not np.sum(frame[0]):
-            return trim(frame[1:])
-        # crop bottom
-        elif not np.sum(frame[-1]):
-            return trim(frame[:-2])
-        # crop left
-        elif not np.sum(frame[:, 0]):
-            return trim(frame[:, 1:])
-        # crop right
-        elif not np.sum(frame[:, -1]):
-            return trim(frame[:, :-2])
-        return frame
-
-    final = cv2.copyMakeBorder(trim(neighbours(imgResult)), 10, 10, 10, 10, cv2.BORDER_CONSTANT, None, value=0)
-
-    return final
-
-
 def test(PATH, test_img_list):
     nChannel = 50
     label_colours = np.random.randint(255, size=(nChannel, 3))
 
     for img_file in tqdm.tqdm(test_img_list):
-        im = get_rice_mask_thru_colour_detection(os.path.join("Type 2", img_file))
+        im = mask_and_crop(os.path.join("Images", img_file))
         im_hsv = cv2.cvtColor(im, cv2.COLOR_BGR2HSV)
         indices = np.where(im == 0)
         coordinates = zip(indices[0], indices[1])
@@ -139,37 +78,11 @@ def test(PATH, test_img_list):
         for coord in coordinates:
             im_target_rgb[coord[0], coord[1], :] = 0
 
-        cv2.imwrite(os.path.join("Type 2 Model 3",  os.path.basename(img_file) + '.png'), im_target_rgb)
+        cv2.imwrite(os.path.join("Predictions",  os.path.basename(img_file) + '.png'), im_target_rgb)
 
 
-def get_defect_percent(image_path, good_grain):
-    """
-    :param image_path: path to concerned image file
-    :param good_grain: RGB value of color segmented as good grain (needs to be manually extracted from by_color dict)
-    :return: percent of defect (chalkiness + damage)
-    """
-    image = cv2.imread(image_path)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-    by_color = defaultdict(int)
-    img = Image.open(image_path)  # RGB FORMAT
-    for pixel in img.getdata():
-        by_color[pixel] += 1
-
-    print(by_color)
-
-    total_grain = image.shape[0] * image.shape[1] - by_color[(0, 0, 0)]
-
-    del by_color[good_grain]
-    del by_color[(0, 0, 0)]
-
-    defect_grain_percent = ((sum(list(by_color.values())) - 4000) / total_grain)
-
-    return defect_grain_percent
-
-
-PATH = "model_3.pth"
-test_img_list = os.listdir("Type 2")
+PATH = "Trained Models/model.pth"
+test_img_list = os.listdir("Images")
 print('Testing ' + str(len(test_img_list)) + ' images.')
 test(PATH, test_img_list)
 

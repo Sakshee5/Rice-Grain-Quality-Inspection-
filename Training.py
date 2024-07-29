@@ -10,9 +10,10 @@ import numpy as np
 import torch.nn.init
 import random
 from skimage import segmentation
+import pandas as pd
+from pre_processing import mask_and_crop
 
-
-def seed_everything(seed=2):
+def seed_everything(seed):
     """
     To recreate segmentation results.
     """
@@ -23,14 +24,14 @@ def seed_everything(seed=2):
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
 
-
-seed_everything()
+seed = 10
+seed_everything(seed)
 
 parser = argparse.ArgumentParser(description='PyTorch Unsupervised Segmentation')
 parser.add_argument('--nChannel', metavar='N', default=50, type=int, help='number of channels')
-parser.add_argument('--maxIter', metavar='T', default=100, type=int, help='number of maximum iterations')
+parser.add_argument('--maxIter', metavar='T', default=80, type=int, help='number of maximum iterations')
 parser.add_argument('--minLabels', metavar='minL', default=3, type=int, help='minimum number of labels')
-parser.add_argument('--lr', metavar='LR', default=0.025, type=float, help='learning rate')
+parser.add_argument('--lr', metavar='LR', default=0.02, type=float, help='learning rate')
 parser.add_argument('--nConv', metavar='M', default=2, type=int, help='number of convolutional layers')
 parser.add_argument('--visualize', metavar='1 or 0', default=1, type=int, help='visualization flag')
 args = parser.parse_args()
@@ -70,71 +71,17 @@ class MyNet(nn.Module):
         return x
 
 
-def get_rice_mask_thru_colour_detection(img_path):
-    """
-    Img ---> converted to HSV color space to detect background ---> create a mask of grain ---> make sure all background
-    pixels are set to black colour ---> crop grain ---> add 5 pixel black background padding on each side
-    """
-    img = cv2.resize(cv2.imread(img_path), (800, 1200))
-    imgHSV = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-
-    lower = np.array([70, 110, 0])
-    upper = np.array([109, 255, 255])
-
-    mask = cv2.inRange(imgHSV, lower, upper)
-    imgResult = cv2.bitwise_and(img, img, mask=cv2.bitwise_not(mask))
-
-    def neighbours(im):
-        for i in range(im.shape[1]):  # set top and bottom row of pixels to 0 incase they are not masked right
-            im[0, i, :] = 0
-            im[im.shape[0] - 1, i, :] = 0
-
-        for i in range(im.shape[0]):  # set right and left column of pixels to 0
-            im[i, 0, :] = 0
-            im[i, im.shape[1] - 1, :] = 0
-
-        neighbours = [1, 2, 3, 4, 5]
-        # check top bottom right and left pixels of every pixel till it's fifth neighbour and if they are all zero then
-        # set pixel in question to zero incase they were not masked right
-
-        for val in neighbours:
-            for i in range(val, im.shape[0] - val):
-                for j in range(1, im.shape[1] - val):
-                    if np.any(im[i, j, :]) != 0:
-                        if np.all(im[i + val, j, :] == 0) and np.all(im[i, j + val, :] == 0) and np.all(
-                                im[i - val, j, :] == 0) and np.all(im[i, j - val, :] == 0):
-                            im[i, j, :] = 0
-
-        return im
-
-    def trim(frame):
-        # crop top
-        if not np.sum(frame[0]):
-            return trim(frame[1:])
-        # crop bottom
-        elif not np.sum(frame[-1]):
-            return trim(frame[:-2])
-        # crop left
-        elif not np.sum(frame[:, 0]):
-            return trim(frame[:, 1:])
-        # crop right
-        elif not np.sum(frame[:, -1]):
-            return trim(frame[:, :-2])
-        return frame
-
-    final = cv2.copyMakeBorder(trim(neighbours(imgResult)), 10, 10, 10, 10, cv2.BORDER_CONSTANT, None, value=0)
-
-    return final
-
-
 def unsupervised_segmentation(im):
+    loss_lst = []
     im_denoise = cv2.fastNlMeansDenoisingColored(im, None, 10, 10, 0, 15)
     data = torch.from_numpy(np.array([im.transpose((2, 0, 1)).astype('float32') / 255.]))
     data = Variable(data)
 
     labels = segmentation.felzenszwalb(im_denoise, scale=1, sigma=0.1, min_size=60)
+    # plt.imshow(segmentation.mark_boundaries(im, labels))
     labels = labels.reshape(im.shape[0]*im.shape[1])
     u_labels = np.unique(labels)
+    u_labels = np.sort(u_labels)
 
     l_inds = []
     for i in range(len(u_labels)):
@@ -148,6 +95,10 @@ def unsupervised_segmentation(im):
     loss_fn = torch.nn.CrossEntropyLoss()
     # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
+
+    # Set a specific seed for color mapping to ensure reproducibility
+    color_seed = 42
+    np.random.seed(color_seed)
     label_colours = np.random.randint(255, size=(args.nChannel, 3))
 
     for batch_idx in range(args.maxIter):
@@ -187,12 +138,16 @@ def unsupervised_segmentation(im):
         optimizer.step()
 
         print(batch_idx, '/', args.maxIter, '|', ' label num rgb :', nLabels, 'loss :', loss.item())
+        loss_lst.append(loss.item())
 
-    torch.save(model.state_dict(), os.path.join(r"C:\Users\Sakshee\Documents\Rice Defect Dataset", 'model' + '.pth'))
+    df = pd.DataFrame({f"Loss Seed {seed}": loss_lst})
+    df.to_excel(f"seed_{seed}_loss_values.xlsx", index=False)
+    torch.save(model.state_dict(), os.path.join(r"Trained Models", 'model' + '.pth'))
     cv2.imshow('output', cv2.resize(im_target_rgb, dim, interpolation=cv2.INTER_AREA))
     cv2.waitKey(0)
 
 
-img_path = r"C:\Users\Sakshee\Documents\Rice Defect Dataset\All images\DSC01902.JPG"
-img = get_rice_mask_thru_colour_detection(img_path)
+img_path = r"Images/DSC01902.JPG"
+img = mask_and_crop(img_path)
+print("Starting Segmentation...")
 unsupervised_segmentation(img)

@@ -1,1 +1,6 @@
-
+Images/
+Predictions/
+env1/
+Journal Paper/
+__pycache__/
+Trained Models/
