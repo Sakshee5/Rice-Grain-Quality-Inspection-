@@ -7,10 +7,10 @@ def nothing(x):
     pass
 
 cv2.namedWindow(Winname)
-cv2.createTrackbar('H', Winname, 0, 179, nothing)
-cv2.createTrackbar('S', Winname, 0, 255, nothing)
+cv2.createTrackbar('H', Winname, 70, 179, nothing)
+cv2.createTrackbar('S', Winname, 110, 255, nothing)
 cv2.createTrackbar('V', Winname, 0, 255, nothing)
-cv2.createTrackbar('H2', Winname, 179, 179, nothing)
+cv2.createTrackbar('H2', Winname, 109, 179, nothing)
 cv2.createTrackbar('S2', Winname, 255, 255, nothing)
 cv2.createTrackbar('V2', Winname, 255, 255, nothing)
 
@@ -44,7 +44,7 @@ while True:
     upper_boundary = np.array([H2, S2, V2])
     mask = cv2.inRange(hsv, lower_boundary, upper_boundary)
 
-    final = cv2.bitwise_and(img_resized, img_resized, mask=mask)
+    final = cv2.bitwise_and(img_resized, img_resized, mask=cv2.bitwise_not(mask))
     cv2.imshow(Winname, final)
 
     if cv2.waitKey(1) == ord('q'):

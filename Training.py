@@ -79,6 +79,20 @@ def unsupervised_segmentation(im):
 
     labels = segmentation.felzenszwalb(im_denoise, scale=1, sigma=0.1, min_size=60)
     # plt.imshow(segmentation.mark_boundaries(im, labels))
+
+    # # Visualize segmentation boundaries
+    # marked_boundaries = segmentation.mark_boundaries(im, labels)
+    # scale_percent = 50  # percent of original size
+    # width = int(marked_boundaries.shape[1] * scale_percent / 100)
+    # height = int(marked_boundaries.shape[0] * scale_percent / 100)
+    # dim = (width, height)
+
+    # # Convert marked_boundaries to a displayable format
+    # marked_boundaries_rgb = (marked_boundaries * 255).astype(np.uint8)
+    # cv2.imshow('Segmented Image with Boundaries', cv2.resize(marked_boundaries_rgb, dim, interpolation=cv2.INTER_AREA))
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+    
     labels = labels.reshape(im.shape[0]*im.shape[1])
     u_labels = np.unique(labels)
     u_labels = np.sort(u_labels)
